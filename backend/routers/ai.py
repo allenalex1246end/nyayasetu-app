@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from typing import Optional
 import numpy as np
 
-from utils.groq_client import analyse_grievance, generate_brief, translate_to_malayalam, explain_436a
+from utils.groq_client import analyse_grievance, generate_brief, translate_to_malayalam, explain_436a, call_groq
 from utils.gemini_client import get_embedding
 
 logger = logging.getLogger(__name__)
@@ -24,6 +24,9 @@ class BriefRequest(BaseModel):
 
 class EmbedRequest(BaseModel):
     text: str
+
+class ExtractIdentityRequest(BaseModel):
+    transcript: str
 
 
 # --- Endpoints ---
@@ -71,6 +74,45 @@ async def embed_endpoint(req: EmbedRequest):
     except Exception as e:
         logger.error("Embed endpoint error: %s", str(e))
         return {"success": False, "data": None, "error": str(e)}
+
+
+@router.post("/extract-identity")
+async def extract_identity(req: ExtractIdentityRequest):
+    """Extract name and phone number from voice transcript using Groq."""
+    try:
+        prompt = (
+            "Extract the person's name and phone number from this spoken text. "
+            "Return ONLY valid JSON with no explanation or markdown:\n"
+            '{"name": "<extracted full name or empty string>", "phone": "<extracted phone number or empty string>"}\n'
+            "Rules:\n"
+            "- If no name is found, return empty string for name\n"
+            "- If no phone is found, return empty string for phone\n"
+            "- Phone should include country code if mentioned (e.g. +91)\n"
+            "- Clean up the phone to digits and + only\n"
+            f"\nTranscript: {req.transcript}"
+        )
+        raw = await call_groq(prompt)
+        if not raw:
+            return {"success": True, "data": {"name": "", "phone": ""}, "error": None}
+
+        cleaned = raw.strip()
+        if cleaned.startswith("```"):
+            lines = cleaned.split("\n")
+            cleaned = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+        result = json.loads(cleaned)
+        return {
+            "success": True,
+            "data": {
+                "name": result.get("name", ""),
+                "phone": result.get("phone", ""),
+            },
+            "error": None,
+        }
+    except (json.JSONDecodeError, ValueError, TypeError):
+        return {"success": True, "data": {"name": "", "phone": ""}, "error": None}
+    except Exception as e:
+        logger.error("Extract identity error: %s", str(e))
+        return {"success": True, "data": {"name": "", "phone": ""}, "error": str(e)}
 
 
 def cosine_similarity(a: list, b: list) -> float:

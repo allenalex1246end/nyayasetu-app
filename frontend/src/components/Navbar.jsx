@@ -4,6 +4,8 @@ import { Link, useLocation } from "react-router-dom";
 const NAV_LINKS = [
   { to: "/", label: "Citizen Portal" },
   { to: "/officer", label: "Officer Dashboard" },
+  { to: "/railway", label: "RailMadad 2.0" },
+  { to: "/railway-officer", label: "Railway Officer" },
   { to: "/community", label: "Community" },
   { to: "/justice", label: "Justice-Link" },
 ];

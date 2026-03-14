@@ -1,7 +1,7 @@
 import axios from "axios";
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || "http://localhost:8000",
+  baseURL: import.meta.env.VITE_API_URL || "http://localhost:8001",
   timeout: 20000,
 });
 
@@ -66,8 +66,48 @@ export const checkEligibility = (id) => api.get(`/api/legal/check/${id}`);
 
 export const translateGrievance = (id) => api.get(`/api/translate/${id}`);
 
+/* ────────── AI Identity Extraction endpoint ────────── */
+
+export const extractIdentity = (transcript) => api.post("/api/extract-identity", { transcript });
+
 /* ────────── Community endpoint ────────── */
 
 export const supportGrievance = (id) => api.post(`/api/grievances/${id}/support`);
+
+/* ────────── Railway (RailMadad 2.0) endpoints ────────── */
+
+export const submitRailwayGrievance = (data) => api.post("/api/railway/grievances", data);
+
+export const getRailwayGrievances = (params) => api.get("/api/railway/grievances", { params });
+
+export const getRailwayGrievance = (id) => api.get(`/api/railway/grievances/${id}`);
+
+export const resolveRailwayGrievance = (id) => api.patch(`/api/railway/grievances/${id}/resolve`);
+
+export const getRailwayDashboardStats = () => api.get("/api/railway/dashboard/stats");
+
+export const getRailwayDashboardClusters = () => api.get("/api/railway/dashboard/clusters");
+
+export const getRailwayDashboardTrends = () => api.get("/api/railway/dashboard/trends");
+
+export const generateRailwayBrief = () => api.get("/api/railway/dashboard/brief");
+
+/* ────────── Audit & Budget endpoints ────────── */
+
+export const getBudgetEntries = (params) => api.get("/api/audit/budget", { params });
+
+export const getBudgetStats = () => api.get("/api/audit/budget/stats");
+
+export const getFlaggedEntries = () => api.get("/api/audit/flagged");
+
+export const createBudgetEntry = (data) => api.post("/api/audit/budget", data);
+
+export const flagBudgetEntry = (id, reason) => api.patch(`/api/audit/budget/${id}/flag`, null, { params: { reason } });
+
+/* ────────── Predictions endpoints ────────── */
+
+export const getPredictions = (params) => api.get("/api/predictions", { params });
+
+export const runPredictions = () => api.post("/api/predictions/run");
 
 export default api;

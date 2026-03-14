@@ -140,6 +140,53 @@ async def translate_to_malayalam(text: str) -> str:
     return result if result else text
 
 
+async def analyse_railway_grievance(text: str, train_number: str, zone: str) -> dict:
+    """Analyse a railway passenger complaint using Groq. Returns structured analysis."""
+    safe_defaults = {
+        "category": "other",
+        "urgency": 3,
+        "credibility_score": 50,
+        "summary": text[:50] if text else "No description provided",
+        "department": "Railway Maintenance",
+    }
+
+    prompt = (
+        "You are an AI for Indian Railways (RailMadad). Analyse this passenger complaint and return ONLY valid JSON "
+        "with no explanation or markdown:\n"
+        "{\n"
+        '  "category": "one of: cleanliness, catering, punctuality, safety, electrical, water, staff_behavior, overcrowding, other",\n'
+        '  "urgency": <integer 1-5 where 5 is most critical>,\n'
+        '  "credibility_score": <integer 0-100 based on specificity>,\n'
+        '  "summary": "<one sentence under 15 words>",\n'
+        '  "department": "<responsible railway department>"\n'
+        "}\n"
+        f"Train Number: {train_number}\n"
+        f"Railway Zone: {zone}\n"
+        f"Complaint: {text}"
+    )
+
+    raw = await call_groq(prompt)
+    if not raw:
+        return safe_defaults
+
+    try:
+        cleaned = raw.strip()
+        if cleaned.startswith("```"):
+            lines = cleaned.split("\n")
+            cleaned = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+        result = json.loads(cleaned)
+        return {
+            "category": result.get("category", safe_defaults["category"]),
+            "urgency": int(result.get("urgency", safe_defaults["urgency"])),
+            "credibility_score": int(result.get("credibility_score", safe_defaults["credibility_score"])),
+            "summary": result.get("summary", safe_defaults["summary"]),
+            "department": result.get("department", safe_defaults["department"]),
+        }
+    except (json.JSONDecodeError, ValueError, TypeError) as e:
+        logger.error("Failed to parse Groq railway analysis response: %s", str(e))
+        return safe_defaults
+
+
 async def explain_436a(prisoner_name: str, ipc_section: str, max_years: int, months_detained: int, eligible: bool) -> str:
     """Get 436A explanation in English and Malayalam."""
     prompt = (

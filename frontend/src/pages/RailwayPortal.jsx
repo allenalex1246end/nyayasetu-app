@@ -1,49 +1,34 @@
 import React, { useState, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { submitGrievance, extractIdentity } from '../api'
+import { submitRailwayGrievance, extractIdentity } from '../api'
 import LoadingSpinner from '../components/LoadingSpinner'
 import ErrorCard from '../components/ErrorCard'
 import Toast from '../components/Toast'
 import ReceiptCard from '../components/ReceiptCard'
 
-const WARDS = [
-  'Ward 1 (Kazhakoottam)',
-  'Ward 2 (Technopark)',
-  'Ward 3 (Pattom)',
-  'Ward 4 (Vanchiyoor)',
-  'Ward 5 (Palayam)',
-  'Ward 6 (Karamana)',
-  'Ward 7 (Nemom)',
-  'Ward 8 (Kovalam)',
+const RAILWAY_ZONES = [
+  'Southern Railway',
+  'Northern Railway',
+  'Eastern Railway',
+  'Western Railway',
+  'Central Railway',
+  'South Central Railway',
+  'South Eastern Railway',
+  'South Western Railway',
+  'North Central Railway',
+  'North Eastern Railway',
+  'North Western Railway',
+  'Northeast Frontier Railway',
+  'East Central Railway',
+  'East Coast Railway',
+  'West Central Railway',
+  'Konkan Railway',
+  'Metro Railway Kolkata',
 ]
-
-const WARD_COORDS = {
-  'Ward 1 (Kazhakoottam)': [8.5667, 76.8721],
-  'Ward 2 (Technopark)': [8.5500, 76.8800],
-  'Ward 3 (Pattom)': [8.5241, 76.9366],
-  'Ward 4 (Vanchiyoor)': [8.4875, 76.9525],
-  'Ward 5 (Palayam)': [8.5005, 76.9536],
-  'Ward 6 (Karamana)': [8.4700, 76.9700],
-  'Ward 7 (Nemom)': [8.4500, 76.9600],
-  'Ward 8 (Kovalam)': [8.3988, 76.9820],
-}
-
-function findNearestWard(lat, lng) {
-  let nearest = WARDS[0]
-  let minDist = Infinity
-  for (const [name, coords] of Object.entries(WARD_COORDS)) {
-    const d = Math.sqrt((lat - coords[0]) ** 2 + (lng - coords[1]) ** 2)
-    if (d < minDist) {
-      minDist = d
-      nearest = name
-    }
-  }
-  return nearest
-}
 
 const LANGUAGES = ['English', 'Malayalam', 'Hindi']
 
-export default function CitizenPortal() {
+export default function RailwayPortal() {
   const navigate = useNavigate()
   const recognitionRef = useRef(null)
   const descriptionRef = useRef('')
@@ -51,7 +36,10 @@ export default function CitizenPortal() {
   // Form state
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
-  const [ward, setWard] = useState('')
+  const [trainNumber, setTrainNumber] = useState('')
+  const [zone, setZone] = useState('')
+  const [station, setStation] = useState('')
+  const [coachNumber, setCoachNumber] = useState('')
   const [description, setDescription] = useState('')
   const [language, setLanguage] = useState('English')
 
@@ -61,31 +49,8 @@ export default function CitizenPortal() {
   const [toast, setToast] = useState(null)
   const [receipt, setReceipt] = useState(null)
   const [listening, setListening] = useState(false)
-  const [locating, setLocating] = useState(false)
   const [imagePreview, setImagePreview] = useState(null)
   const [imageBase64, setImageBase64] = useState(null)
-
-  const handleGeolocate = useCallback(() => {
-    if (!navigator.geolocation) {
-      setToast({ message: 'Geolocation not supported by your browser', type: 'error' })
-      return
-    }
-    setLocating(true)
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const nearest = findNearestWard(pos.coords.latitude, pos.coords.longitude)
-        setWard(nearest)
-        setToast({ message: `Detected: ${nearest}`, type: 'success' })
-        setLocating(false)
-      },
-      (err) => {
-        console.error('Geolocation error:', err)
-        setToast({ message: 'Could not detect location. Please select ward manually.', type: 'error' })
-        setLocating(false)
-      },
-      { enableHighAccuracy: true, timeout: 10000 }
-    )
-  }, [])
 
   const handleImageSelect = useCallback((e) => {
     const file = e.target.files?.[0]
@@ -98,13 +63,11 @@ export default function CitizenPortal() {
     reader.onload = () => {
       const dataUrl = reader.result
       setImagePreview(dataUrl)
-      // Extract base64 data (strip the data:image/...;base64, prefix)
       setImageBase64(dataUrl.split(',')[1])
     }
     reader.readAsDataURL(file)
   }, [])
 
-  // Check speech recognition support
   const SpeechRecognition =
     typeof window !== 'undefined'
       ? window.SpeechRecognition || window.webkitSpeechRecognition
@@ -115,7 +78,6 @@ export default function CitizenPortal() {
       setToast({ message: 'Use Chrome for voice input', type: 'error' })
       return
     }
-
     try {
       const recognition = new SpeechRecognition()
       recognition.lang = language === 'Malayalam' ? 'ml-IN' : language === 'Hindi' ? 'hi-IN' : 'en-IN'
@@ -143,7 +105,6 @@ export default function CitizenPortal() {
 
       recognition.onend = () => {
         setListening(false)
-        // Auto-fill name and phone from voice transcript
         const transcript = descriptionRef.current
         if (transcript && transcript.trim()) {
           extractIdentity(transcript.trim())
@@ -155,9 +116,7 @@ export default function CitizenPortal() {
                 setToast({ message: 'Auto-filled name/phone from voice', type: 'success' })
               }
             })
-            .catch(() => {
-              // Silent fail - auto-fill is a convenience feature
-            })
+            .catch(() => {})
         }
       }
 
@@ -182,17 +141,20 @@ export default function CitizenPortal() {
     e.preventDefault()
     setError(null)
 
-    if (!name.trim() || !ward || !description.trim()) {
-      setToast({ message: 'Please fill in name, ward, and description', type: 'error' })
+    if (!name.trim() || !trainNumber.trim() || !zone || !description.trim()) {
+      setToast({ message: 'Please fill in name, train number, zone, and description', type: 'error' })
       return
     }
 
     setLoading(true)
     try {
-      const result = await submitGrievance({
-        citizen_name: name.trim(),
+      const result = await submitRailwayGrievance({
+        passenger_name: name.trim(),
         phone: phone.trim() || null,
-        ward,
+        train_number: trainNumber.trim(),
+        railway_zone: zone,
+        station: station.trim() || null,
+        coach_number: coachNumber.trim() || null,
         description: description.trim(),
         image_data: imageBase64 || null,
       })
@@ -205,11 +167,13 @@ export default function CitizenPortal() {
           category: data.ai_analysis?.category || data.grievance.category,
           urgency: data.ai_analysis?.urgency || data.grievance.urgency,
         })
-        setToast({ message: 'Complaint submitted successfully!', type: 'success' })
-        // Reset form
+        setToast({ message: 'Railway complaint submitted successfully!', type: 'success' })
         setName('')
         setPhone('')
-        setWard('')
+        setTrainNumber('')
+        setZone('')
+        setStation('')
+        setCoachNumber('')
         setDescription('')
         setImagePreview(null)
         setImageBase64(null)
@@ -224,7 +188,6 @@ export default function CitizenPortal() {
     }
   }
 
-  // If receipt is shown, display it
   if (receipt) {
     return (
       <div className="mx-auto max-w-2xl px-4 py-12">
@@ -254,10 +217,10 @@ export default function CitizenPortal() {
       {/* Header */}
       <div className="mb-8 text-center">
         <h1 className="font-heading text-3xl font-bold text-navy">
-          File a Grievance
+          RailMadad 2.0
         </h1>
         <p className="mt-2 font-body text-gray-500">
-          Your voice. Our governance. Speak or type your complaint below.
+          Indian Railways Passenger Grievance Portal — powered by NyayaSetu AI
         </p>
       </div>
 
@@ -297,14 +260,8 @@ export default function CitizenPortal() {
         <p className={`mt-3 text-sm font-body ${listening ? 'text-critical font-semibold animate-pulse' : 'text-gray-400'}`}>
           {listening ? 'Listening... tap to stop' : 'Tap to speak your complaint'}
         </p>
-        {!SpeechRecognition && (
-          <p className="mt-1 text-xs text-orange-500 font-body">
-            Use Chrome for voice input
-          </p>
-        )}
       </div>
 
-      {/* Error display */}
       {error && (
         <div className="mb-6">
           <ErrorCard message={error} onRetry={() => setError(null)} />
@@ -316,7 +273,7 @@ export default function CitizenPortal() {
         {/* Name */}
         <div>
           <label className="mb-1 block text-sm font-medium text-gray-700 font-body">
-            Your Name <span className="text-critical">*</span>
+            Passenger Name <span className="text-critical">*</span>
           </label>
           <input
             type="text"
@@ -344,37 +301,68 @@ export default function CitizenPortal() {
           />
         </div>
 
-        {/* Ward */}
-        <div>
-          <label className="mb-1 block text-sm font-medium text-gray-700 font-body">
-            Ward <span className="text-critical">*</span>
-          </label>
-          <div className="flex gap-2">
+        {/* Train Number + Zone */}
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700 font-body">
+              Train Number <span className="text-critical">*</span>
+            </label>
+            <input
+              type="text"
+              value={trainNumber}
+              onChange={(e) => setTrainNumber(e.target.value)}
+              placeholder="e.g. 12625"
+              className="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm font-body text-gray-900 placeholder-gray-400 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+              required
+              disabled={loading}
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700 font-body">
+              Railway Zone <span className="text-critical">*</span>
+            </label>
             <select
-              value={ward}
-              onChange={(e) => setWard(e.target.value)}
-              className="flex-1 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-body text-gray-900 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+              value={zone}
+              onChange={(e) => setZone(e.target.value)}
+              className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-body text-gray-900 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
               required
               disabled={loading}
             >
-              <option value="">Select your ward</option>
-              {WARDS.map((w) => (
-                <option key={w} value={w}>{w}</option>
+              <option value="">Select zone</option>
+              {RAILWAY_ZONES.map((z) => (
+                <option key={z} value={z}>{z}</option>
               ))}
             </select>
-            <button
-              type="button"
-              onClick={handleGeolocate}
-              disabled={loading || locating}
-              className="flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-50"
-              title="Use my location"
-            >
-              <svg className={`h-4 w-4 ${locating ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-              </svg>
-              {locating ? 'Detecting...' : 'Locate'}
-            </button>
+          </div>
+        </div>
+
+        {/* Station + Coach */}
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700 font-body">
+              Station <span className="text-xs text-gray-400">(optional)</span>
+            </label>
+            <input
+              type="text"
+              value={station}
+              onChange={(e) => setStation(e.target.value)}
+              placeholder="e.g. Chennai Central"
+              className="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm font-body text-gray-900 placeholder-gray-400 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+              disabled={loading}
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700 font-body">
+              Coach Number <span className="text-xs text-gray-400">(optional)</span>
+            </label>
+            <input
+              type="text"
+              value={coachNumber}
+              onChange={(e) => setCoachNumber(e.target.value)}
+              placeholder="e.g. S4"
+              className="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm font-body text-gray-900 placeholder-gray-400 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+              disabled={loading}
+            />
           </div>
         </div>
 
@@ -386,7 +374,7 @@ export default function CitizenPortal() {
           <textarea
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder="Describe your complaint in detail..."
+            placeholder="Describe the issue in detail (cleanliness, safety, catering, etc.)..."
             rows={5}
             className="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm font-body text-gray-900 placeholder-gray-400 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
             required
@@ -400,7 +388,7 @@ export default function CitizenPortal() {
         {/* Photo Evidence */}
         <div>
           <label className="mb-1 block text-sm font-medium text-gray-700 font-body">
-            Photo Evidence <span className="text-xs text-gray-400">(optional - helps verify severity)</span>
+            Photo Evidence <span className="text-xs text-gray-400">(optional)</span>
           </label>
           <div className="flex items-center gap-3">
             <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50">
@@ -440,16 +428,16 @@ export default function CitizenPortal() {
         {/* Submit */}
         <button
           type="submit"
-          disabled={loading || !name.trim() || !ward || !description.trim()}
+          disabled={loading || !name.trim() || !trainNumber.trim() || !zone || !description.trim()}
           className="w-full rounded-lg bg-accent px-6 py-3 text-base font-semibold text-white shadow-sm transition-all hover:bg-accent/90 focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {loading ? 'Analysing your complaint...' : 'Submit Complaint'}
+          {loading ? 'Analysing your complaint...' : 'Submit Railway Complaint'}
         </button>
       </form>
 
       {loading && (
         <div className="mt-6">
-          <LoadingSpinner message="AI is analysing your complaint..." />
+          <LoadingSpinner message="AI is analysing your railway complaint..." />
         </div>
       )}
     </div>

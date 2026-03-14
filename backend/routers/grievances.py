@@ -6,6 +6,8 @@ from typing import Optional
 
 from utils.hashing import generate_hash, generate_action_hash
 from utils.groq_client import analyse_grievance
+from utils.gemini_client import verify_with_image
+from utils.db_helpers import is_table_missing
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["Grievances"])
@@ -17,6 +19,7 @@ class GrievanceCreate(BaseModel):
     ward: str
     description: str
     category: Optional[str] = None
+    image_data: Optional[str] = None
 
 
 def log_action(supabase, grievance_id: str, action_type: str, performed_by: str = "system", notes: str = ""):
@@ -49,16 +52,32 @@ async def create_grievance(req: GrievanceCreate):
         return {"success": False, "data": None, "error": "Database not configured"}
     try:
         analysis = await analyse_grievance(req.description, req.ward)
+        urgency = analysis.get("urgency", 3)
+
+        # Image verification with Gemini Vision
+        image_url = None
+        image_verified = None
+        image_analysis = None
+        if req.image_data:
+            image_analysis = await verify_with_image(req.description, req.image_data)
+            image_url = f"data:image/jpeg;base64,{req.image_data[:100]}..."  # Store truncated reference
+            image_verified = image_analysis.get("verified", True)
+            # Adjust urgency based on image evidence
+            adjustment = image_analysis.get("severity_adjustment", 0)
+            urgency = max(1, min(5, urgency + adjustment))
+
         grievance_data = {
             "citizen_name": req.citizen_name,
             "phone": req.phone,
             "ward": req.ward,
             "description": req.description,
             "category": req.category or analysis.get("category", "other"),
-            "urgency": analysis.get("urgency", 3),
+            "urgency": urgency,
             "credibility_score": analysis.get("credibility_score", 50),
             "ai_summary": analysis.get("summary", req.description[:50]),
             "status": "open",
+            "image_url": image_url,
+            "image_verified": image_verified,
         }
         result = supabase.table("grievances").insert(grievance_data).execute()
         if not result.data:
@@ -71,7 +90,7 @@ async def create_grievance(req: GrievanceCreate):
         grievance["hash"] = hash_val
         return {
             "success": True,
-            "data": {"grievance": grievance, "hash": hash_val, "ai_analysis": analysis},
+            "data": {"grievance": grievance, "hash": hash_val, "ai_analysis": analysis, "image_analysis": image_analysis},
             "error": None,
         }
     except Exception as e:
@@ -193,4 +212,6 @@ async def support_grievance(grievance_id: str):
         return {"success": True, "data": {"support_count": current + 1}, "error": None}
     except Exception as e:
         logger.error("Support grievance error: %s", str(e))
+        if "42703" in str(e) or "support_count" in str(e) or is_table_missing(str(e)):
+            return {"success": False, "data": None, "error": "support_count column not found. Run: ALTER TABLE grievances ADD COLUMN IF NOT EXISTS support_count INTEGER DEFAULT 0;"}
         return {"success": False, "data": None, "error": str(e)}

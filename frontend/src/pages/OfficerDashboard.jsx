@@ -7,6 +7,11 @@ import {
   getGrievances,
   resolveGrievance,
   generateBrief,
+  getBudgetEntries,
+  getBudgetStats,
+  createBudgetEntry,
+  getPredictions,
+  runPredictions,
 } from '../api'
 import StatCard from '../components/StatCard'
 import GrievanceTable from '../components/GrievanceTable'
@@ -17,7 +22,7 @@ import Toast from '../components/Toast'
 import { MapContainer, TileLayer, CircleMarker, Popup } from 'react-leaflet'
 import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 
-const TABS = ['Dashboard', 'Complaints', 'Clusters', 'Generate Brief']
+const TABS = ['Dashboard', 'Complaints', 'Clusters', 'Predictions', 'Audit & Budget', 'Generate Brief']
 const PIE_COLORS = ['#3B82F6', '#10B981', '#EF4444', '#F59E0B', '#8B5CF6', '#6B7280']
 
 export default function OfficerDashboard() {
@@ -45,6 +50,19 @@ export default function OfficerDashboard() {
   const [brief, setBrief] = useState('')
   const [briefLoading, setBriefLoading] = useState(false)
   const [briefError, setBriefError] = useState(null)
+
+  // Audit & Budget tab state
+  const [budgetEntries, setBudgetEntries] = useState([])
+  const [budgetStats, setBudgetStats] = useState(null)
+  const [auditLoading, setAuditLoading] = useState(false)
+  const [auditError, setAuditError] = useState(null)
+  const [showBudgetForm, setShowBudgetForm] = useState(false)
+  const [budgetForm, setBudgetForm] = useState({ department: '', amount_allocated: '', description: '', grievance_id: '' })
+
+  // Predictions tab state
+  const [predictions, setPredictions] = useState([])
+  const [predictionsLoading, setPredictionsLoading] = useState(false)
+  const [predictionsError, setPredictionsError] = useState(null)
 
   // Fetch dashboard stats + map data
   const fetchDashboard = useCallback(async () => {
@@ -97,16 +115,50 @@ export default function OfficerDashboard() {
     }
   }, [])
 
+  // Fetch audit data
+  const fetchAudit = useCallback(async () => {
+    setAuditLoading(true)
+    setAuditError(null)
+    try {
+      const [entriesRes, statsRes] = await Promise.all([
+        getBudgetEntries({}),
+        getBudgetStats(),
+      ])
+      setBudgetEntries(entriesRes?.data?.data || entriesRes?.data || [])
+      setBudgetStats(statsRes?.data?.data || statsRes?.data || null)
+    } catch (err) {
+      setAuditError(err?.message || 'Failed to load audit data')
+    } finally {
+      setAuditLoading(false)
+    }
+  }, [])
+
+  // Fetch predictions
+  const fetchPredictions = useCallback(async () => {
+    setPredictionsLoading(true)
+    setPredictionsError(null)
+    try {
+      const res = await getPredictions({})
+      setPredictions(res?.data?.data || res?.data || [])
+    } catch (err) {
+      setPredictionsError(err?.message || 'Failed to load predictions')
+    } finally {
+      setPredictionsLoading(false)
+    }
+  }, [])
+
   // Load data on tab change
   useEffect(() => {
     try {
       if (activeTab === 'Dashboard') fetchDashboard()
       else if (activeTab === 'Complaints') fetchGrievances()
       else if (activeTab === 'Clusters') fetchClusters()
+      else if (activeTab === 'Audit & Budget') fetchAudit()
+      else if (activeTab === 'Predictions') fetchPredictions()
     } catch (err) {
       console.error('Tab load error:', err)
     }
-  }, [activeTab, fetchDashboard, fetchGrievances, fetchClusters])
+  }, [activeTab, fetchDashboard, fetchGrievances, fetchClusters, fetchAudit, fetchPredictions])
 
   // Handle resolve
   const handleResolve = async (id) => {
@@ -134,6 +186,38 @@ export default function OfficerDashboard() {
       setBriefError(err?.message || 'Failed to generate brief')
     } finally {
       setBriefLoading(false)
+    }
+  }
+
+  // Handle budget form submission
+  const handleBudgetSubmit = async (e) => {
+    e.preventDefault()
+    try {
+      await createBudgetEntry({
+        department: budgetForm.department,
+        amount_allocated: parseFloat(budgetForm.amount_allocated),
+        description: budgetForm.description || null,
+        grievance_id: budgetForm.grievance_id || null,
+      })
+      setToast({ message: 'Budget entry created', type: 'success' })
+      setBudgetForm({ department: '', amount_allocated: '', description: '', grievance_id: '' })
+      setShowBudgetForm(false)
+      fetchAudit()
+    } catch (err) {
+      setToast({ message: err?.message || 'Failed to create budget entry', type: 'error' })
+    }
+  }
+
+  // Handle run predictions
+  const handleRunPredictions = async () => {
+    setPredictionsLoading(true)
+    try {
+      await runPredictions()
+      setToast({ message: 'Predictions generated', type: 'success' })
+      fetchPredictions()
+    } catch (err) {
+      setToast({ message: err?.message || 'Failed to run predictions', type: 'error' })
+      setPredictionsLoading(false)
     }
   }
 
@@ -362,6 +446,268 @@ export default function OfficerDashboard() {
                   <ClusterCard key={cluster?.id || idx} cluster={cluster} />
                 ))}
               </div>
+            )}
+          </div>
+        )}
+
+        {/* ─── PREDICTIONS TAB ─── */}
+        {activeTab === 'Predictions' && (
+          <div>
+            <div className="mb-6 flex items-center justify-between">
+              <h1 className="font-heading text-2xl font-bold text-navy">Predictive Resource Allocation</h1>
+              <div className="flex gap-2">
+                <button
+                  onClick={handleRunPredictions}
+                  disabled={predictionsLoading}
+                  className="rounded-lg bg-accent px-4 py-2 text-sm font-medium font-body text-white hover:bg-accent/90 transition-colors disabled:opacity-50"
+                >
+                  {predictionsLoading ? 'Generating...' : 'Run Predictions'}
+                </button>
+                <button
+                  onClick={fetchPredictions}
+                  className="rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium font-body text-gray-700 hover:bg-gray-200 transition-colors"
+                >
+                  Refresh
+                </button>
+              </div>
+            </div>
+
+            {predictionsError && <ErrorCard message={predictionsError} onRetry={fetchPredictions} />}
+
+            {predictionsLoading ? (
+              <LoadingSpinner message="Analysing historical patterns..." />
+            ) : predictions.length === 0 ? (
+              <div className="rounded-lg border border-gray-200 bg-white p-12 text-center text-gray-400 font-body">
+                <p className="mb-4">No predictions yet. Click "Run Predictions" to analyse historical data.</p>
+                <p className="text-xs">Requires at least 3 months of complaint data per ward/category.</p>
+              </div>
+            ) : (
+              <>
+                {/* Prediction Cards */}
+                <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {predictions.map((p, idx) => (
+                    <div key={p?.id || idx} className={`rounded-lg border bg-white p-4 shadow-sm ${
+                      p.predicted_count >= 10 ? 'border-red-300' : p.predicted_count >= 5 ? 'border-yellow-300' : 'border-gray-200'
+                    }`}>
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <p className="font-heading text-sm font-semibold text-navy">{p.ward}</p>
+                          <p className="text-xs text-gray-500 font-body">{p.category} | {p.month}</p>
+                        </div>
+                        <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${
+                          p.trend === 'rising' ? 'bg-red-100 text-red-700' :
+                          p.trend === 'falling' ? 'bg-green-100 text-green-700' :
+                          'bg-gray-100 text-gray-700'
+                        }`}>
+                          {p.trend === 'rising' ? '↑' : p.trend === 'falling' ? '↓' : '→'} {p.trend}
+                        </span>
+                      </div>
+                      <div className="mt-3">
+                        <p className="text-2xl font-bold text-navy">{p.predicted_count}</p>
+                        <p className="text-xs text-gray-400 font-body">predicted complaints</p>
+                      </div>
+                      <div className="mt-2 flex items-center gap-2">
+                        <div className="flex-1 rounded-full bg-gray-200 h-1.5">
+                          <div
+                            className={`h-1.5 rounded-full ${
+                              p.confidence >= 0.8 ? 'bg-green-500' : p.confidence >= 0.6 ? 'bg-yellow-500' : 'bg-red-500'
+                            }`}
+                            style={{ width: `${(p.confidence || 0) * 100}%` }}
+                          />
+                        </div>
+                        <span className="text-xs text-gray-500 font-body">{Math.round((p.confidence || 0) * 100)}%</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Predictions Bar Chart */}
+                <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+                  <h3 className="mb-3 font-heading text-sm font-semibold text-navy">Predicted Complaints by Ward</h3>
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart data={
+                      // Aggregate predictions by ward
+                      Object.entries(
+                        predictions.reduce((acc, p) => {
+                          acc[p.ward] = (acc[p.ward] || 0) + p.predicted_count
+                          return acc
+                        }, {})
+                      ).map(([ward, count]) => ({ name: ward, predicted: count }))
+                    }>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="name" tick={{ fontSize: 10 }} />
+                      <YAxis allowDecimals={false} />
+                      <Tooltip />
+                      <Bar dataKey="predicted" fill="#8B5CF6" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* ─── AUDIT & BUDGET TAB ─── */}
+        {activeTab === 'Audit & Budget' && (
+          <div>
+            <div className="mb-6 flex items-center justify-between">
+              <h1 className="font-heading text-2xl font-bold text-navy">Audit & Budget Tracking</h1>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setShowBudgetForm(!showBudgetForm)}
+                  className="rounded-lg bg-accent px-4 py-2 text-sm font-medium font-body text-white hover:bg-accent/90 transition-colors"
+                >
+                  {showBudgetForm ? 'Cancel' : 'Allocate Budget'}
+                </button>
+                <button
+                  onClick={fetchAudit}
+                  className="rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium font-body text-gray-700 hover:bg-gray-200 transition-colors"
+                >
+                  Refresh
+                </button>
+              </div>
+            </div>
+
+            {auditError && <ErrorCard message={auditError} onRetry={fetchAudit} />}
+
+            {/* Budget Form */}
+            {showBudgetForm && (
+              <form onSubmit={handleBudgetSubmit} className="mb-6 rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+                <h3 className="mb-3 font-heading text-sm font-semibold text-navy">New Budget Allocation</h3>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <input
+                    type="text"
+                    placeholder="Department"
+                    value={budgetForm.department}
+                    onChange={(e) => setBudgetForm(f => ({ ...f, department: e.target.value }))}
+                    className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-body"
+                    required
+                  />
+                  <input
+                    type="number"
+                    placeholder="Amount (INR)"
+                    value={budgetForm.amount_allocated}
+                    onChange={(e) => setBudgetForm(f => ({ ...f, amount_allocated: e.target.value }))}
+                    className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-body"
+                    required
+                    min="0"
+                    step="0.01"
+                  />
+                  <input
+                    type="text"
+                    placeholder="Grievance ID (optional)"
+                    value={budgetForm.grievance_id}
+                    onChange={(e) => setBudgetForm(f => ({ ...f, grievance_id: e.target.value }))}
+                    className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-body"
+                  />
+                  <input
+                    type="text"
+                    placeholder="Description"
+                    value={budgetForm.description}
+                    onChange={(e) => setBudgetForm(f => ({ ...f, description: e.target.value }))}
+                    className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-body"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  className="mt-3 rounded-lg bg-navy px-4 py-2 text-sm font-medium text-white hover:bg-navy/90"
+                >
+                  Create Entry
+                </button>
+              </form>
+            )}
+
+            {auditLoading ? (
+              <LoadingSpinner message="Loading audit data..." />
+            ) : (
+              <>
+                {/* Budget Stats */}
+                {budgetStats && (
+                  <div className="mb-8 grid grid-cols-2 gap-4 lg:grid-cols-4">
+                    <StatCard title="Total Allocated" value={`₹${(budgetStats.total_allocated || 0).toLocaleString()}`} color="border-blue-500" icon="💰" />
+                    <StatCard title="Total Spent" value={`₹${(budgetStats.total_spent || 0).toLocaleString()}`} color="border-green-500" icon="📊" />
+                    <StatCard title="Flagged Entries" value={budgetStats.total_flagged || 0} color="border-critical" icon="🚩" />
+                    <StatCard title="Flagged Amount" value={`₹${(budgetStats.flagged_amount || 0).toLocaleString()}`} color="border-red-500" icon="⚠️" />
+                  </div>
+                )}
+
+                {/* Flagged Entries Alert */}
+                {budgetEntries.filter(e => e.auditor_flagged).length > 0 && (
+                  <div className="mb-6 rounded-lg border-2 border-red-300 bg-red-50 p-4">
+                    <h3 className="font-heading text-sm font-semibold text-red-800 mb-2">Embezzlement Risk Alerts</h3>
+                    {budgetEntries.filter(e => e.auditor_flagged).map((entry, idx) => (
+                      <div key={entry?.id || idx} className="mb-2 rounded bg-white p-3 border border-red-200">
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <p className="text-sm font-semibold text-red-700 font-body">{entry.department}</p>
+                            <p className="text-xs text-red-600 font-body">{entry.flag_reason}</p>
+                          </div>
+                          <span className="text-sm font-bold text-red-700">₹{(entry.amount_allocated || 0).toLocaleString()}</span>
+                        </div>
+                        {entry.flagged_at && (
+                          <p className="mt-1 text-xs text-gray-400 font-body">Flagged: {new Date(entry.flagged_at).toLocaleString()}</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Budget Entries Table */}
+                {budgetEntries.length > 0 ? (
+                  <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white shadow-sm">
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 font-body">Department</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 font-body">Allocated</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 font-body">Spent</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 font-body">Description</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 font-body">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {budgetEntries.map((entry, idx) => (
+                          <tr key={entry?.id || idx} className={entry.auditor_flagged ? 'bg-red-50' : 'hover:bg-gray-50'}>
+                            <td className="px-4 py-3 text-sm font-body font-medium text-gray-900">{entry.department}</td>
+                            <td className="px-4 py-3 text-sm font-body text-gray-600">₹{(entry.amount_allocated || 0).toLocaleString()}</td>
+                            <td className="px-4 py-3 text-sm font-body text-gray-600">₹{(entry.amount_spent || 0).toLocaleString()}</td>
+                            <td className="max-w-xs truncate px-4 py-3 text-sm font-body text-gray-600">{entry.description || '-'}</td>
+                            <td className="px-4 py-3">
+                              <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${
+                                entry.auditor_flagged ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
+                              }`}>
+                                {entry.auditor_flagged ? 'FLAGGED' : 'Clean'}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-gray-200 bg-white p-12 text-center text-gray-400 font-body">
+                    No budget entries yet. Use "Allocate Budget" to track spending on grievance resolution.
+                  </div>
+                )}
+
+                {/* Department Breakdown Chart */}
+                {budgetStats?.by_department && budgetStats.by_department.length > 0 && (
+                  <div className="mt-6 rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+                    <h3 className="mb-3 font-heading text-sm font-semibold text-navy">Budget by Department</h3>
+                    <ResponsiveContainer width="100%" height={250}>
+                      <BarChart data={budgetStats.by_department}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="name" tick={{ fontSize: 10 }} />
+                        <YAxis allowDecimals={false} />
+                        <Tooltip formatter={(value) => `₹${value.toLocaleString()}`} />
+                        <Legend />
+                        <Bar dataKey="allocated" fill="#3B82F6" name="Allocated" radius={[4, 4, 0, 0]} />
+                        <Bar dataKey="spent" fill="#10B981" name="Spent" radius={[4, 4, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}

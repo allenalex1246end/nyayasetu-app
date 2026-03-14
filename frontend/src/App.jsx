@@ -6,6 +6,8 @@ import OfficerDashboard from './pages/OfficerDashboard'
 import JusticeLinkPage from './pages/JusticeLinkPage'
 import TrackGrievance from './pages/TrackGrievance'
 import CommunityFeed from './pages/CommunityFeed'
+import RailwayPortal from './pages/RailwayPortal'
+import RailwayDashboard from './pages/RailwayDashboard'
 
 function App() {
   const [dark, setDark] = useState(() => {
@@ -24,6 +26,8 @@ function App() {
         <Routes>
           <Route path="/" element={<CitizenPortal />} />
           <Route path="/officer" element={<OfficerDashboard />} />
+          <Route path="/railway" element={<RailwayPortal />} />
+          <Route path="/railway-officer" element={<RailwayDashboard />} />
           <Route path="/justice" element={<JusticeLinkPage />} />
           <Route path="/community" element={<CommunityFeed />} />
           <Route path="/track/:id" element={<TrackGrievance />} />
