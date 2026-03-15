@@ -140,6 +140,13 @@ async def translate_to_malayalam(text: str) -> str:
     return result if result else text
 
 
+async def translate_from_malayalam(text: str) -> str:
+    """Translate text from Malayalam to English using Groq."""
+    prompt = f"Translate the following Malayalam text to English. Return only the English translation, nothing else:\n\n{text}"
+    result = await call_groq(prompt)
+    return result if result else text
+
+
 async def analyse_railway_grievance(text: str, train_number: str, zone: str) -> dict:
     """Analyse a railway passenger complaint using Groq. Returns structured analysis."""
     safe_defaults = {

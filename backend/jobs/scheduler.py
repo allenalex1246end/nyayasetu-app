@@ -10,7 +10,7 @@ async def run_cluster_detection():
     try:
         import httpx
         async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post("http://localhost:8001/api/cluster")
+            response = await client.post("http://localhost:8000/api/cluster")
             if response.status_code == 200:
                 data = response.json()
                 created = data.get("data", {}).get("clusters_created", 0)
@@ -27,7 +27,7 @@ async def run_railway_cluster_detection():
     try:
         import httpx
         async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post("http://localhost:8001/api/railway/cluster")
+            response = await client.post("http://localhost:8000/api/railway/cluster")
             if response.status_code == 200:
                 data = response.json()
                 created = data.get("data", {}).get("clusters_created", 0)

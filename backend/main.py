@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 from supabase import create_client, Client
 from apscheduler.schedulers.background import BackgroundScheduler
+from middleware.rate_limit import add_rate_limiting
 
 # Load environment variables
 load_dotenv()
@@ -96,6 +97,9 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Rate limiting
+limiter = add_rate_limiting(app)
+
 # CORS — allow all origins
 app.add_middleware(
     CORSMiddleware,
@@ -113,7 +117,11 @@ from routers.legal import router as legal_router
 from routers.railway import router as railway_router
 from routers.audit import router as audit_router
 from routers.predictions import router as predictions_router
+from routers.auth import router as auth_router
+from routers.officer import router as officer_router
 
+app.include_router(auth_router)
+app.include_router(officer_router)
 app.include_router(grievances_router)
 app.include_router(ai_router)
 app.include_router(dashboard_router)

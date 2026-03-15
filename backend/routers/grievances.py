@@ -1,13 +1,16 @@
 import logging
 from datetime import datetime, timezone
-from fastapi import APIRouter
+from fastapi import APIRouter, UploadFile, File, Depends
 from pydantic import BaseModel
 from typing import Optional
 
 from utils.hashing import generate_hash, generate_action_hash
+from utils.whisper_client import transcribe_audio
+from utils.auth import get_current_user
 from utils.groq_client import analyse_grievance
 from utils.gemini_client import verify_with_image
 from utils.db_helpers import is_table_missing
+from utils.sms_client import send_grievance_confirmation
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["Grievances"])
@@ -88,9 +91,19 @@ async def create_grievance(req: GrievanceCreate):
         supabase.table("grievances").update({"hash": hash_val}).eq("id", gid).execute()
         log_action(supabase, gid, "submitted", performed_by="citizen", notes=f"Complaint submitted by {req.citizen_name}")
         grievance["hash"] = hash_val
+        
+        # Send SMS confirmation if phone provided
+        sms_sent = False
+        sms_message = None
+        if req.phone:
+            tracking_url = f"https://nyayasetu.local/track/{gid}"
+            success, message = send_grievance_confirmation(req.phone, gid, tracking_url)
+            sms_sent = success
+            sms_message = message
+        
         return {
             "success": True,
-            "data": {"grievance": grievance, "hash": hash_val, "ai_analysis": analysis, "image_analysis": image_analysis},
+            "data": {"grievance": grievance, "hash": hash_val, "ai_analysis": analysis, "image_analysis": image_analysis, "sms_confirmation": {"sent": sms_sent, "message": sms_message}},
             "error": None,
         }
     except Exception as e:
@@ -215,3 +228,51 @@ async def support_grievance(grievance_id: str):
         if "42703" in str(e) or "support_count" in str(e) or is_table_missing(str(e)):
             return {"success": False, "data": None, "error": "support_count column not found. Run: ALTER TABLE grievances ADD COLUMN IF NOT EXISTS support_count INTEGER DEFAULT 0;"}
         return {"success": False, "data": None, "error": str(e)}
+
+
+@router.post("/audio/transcribe")
+async def transcribe_audio_endpoint(file: UploadFile = File(...), user: dict = Depends(get_current_user)):
+    """
+    Transcribe audio file using OpenAI Whisper API.
+    Accepts: MP3, WAV, M4A, FLAC, OGG
+    Max file size: 25MB (Whisper API limit)
+    """
+    try:
+        # Read audio file
+        audio_bytes = await file.read()
+        
+        # Validate file size (Whisper API limit)
+        if len(audio_bytes) > 25 * 1024 * 1024:  # 25MB
+            return {
+                "success": False,
+                "data": None,
+                "error": "Audio file too large. Maximum size: 25MB"
+            }
+        
+        # Transcribe using Whisper
+        result = await transcribe_audio(audio_bytes, language="en")
+        
+        if not result or "error" in result:
+            return {
+                "success": False,
+                "data": None,
+                "error": result.get("error", "Failed to transcribe audio") if result else "Transcription service unavailable"
+            }
+        
+        # Return transcription
+        return {
+            "success": True,
+            "data": {
+                "text": result.get("text", ""),
+                "language": result.get("language", "en"),
+                "confidence": result.get("confidence", 0.95)
+            },
+            "error": None
+        }
+    except Exception as e:
+        logger.error("Audio transcription error: %s", str(e))
+        return {
+            "success": False,
+            "data": None,
+            "error": f"Transcription failed: {str(e)}"
+        }

@@ -197,3 +197,58 @@ CREATE POLICY "Allow all on railway_clusters" ON railway_clusters FOR ALL USING 
 CREATE POLICY "Allow all on railway_actions" ON railway_actions FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all on budget_allocations" ON budget_allocations FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all on predictions" ON predictions FOR ALL USING (true) WITH CHECK (true);
+
+
+-- =============================================
+-- PHASE 1: Authentication & Authorization
+-- =============================================
+
+-- Users table (citizen, officer, auditor, admin)
+CREATE TABLE IF NOT EXISTS users (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    email TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    role TEXT NOT NULL CHECK (role IN ('citizen', 'officer', 'auditor', 'admin')),
+    full_name TEXT,
+    phone TEXT,
+    ward TEXT REFERENCES (ward) MATCH SIMPLE ON DELETE SET NULL,
+    sms_notifications_enabled BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    is_active BOOLEAN DEFAULT TRUE
+);
+
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
+CREATE INDEX IF NOT EXISTS idx_users_ward ON users(ward);
+
+-- Assignments table for officer assignment workflow
+CREATE TABLE IF NOT EXISTS assignments (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    grievance_id UUID NOT NULL REFERENCES grievances(id) ON DELETE CASCADE,
+    officer_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    assigned_at TIMESTAMPTZ DEFAULT NOW(),
+    status TEXT DEFAULT 'assigned' CHECK (status IN ('assigned', 'in_progress', 'completed')),
+    notes TEXT,
+    completed_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_assignments_grievance ON assignments(grievance_id);
+CREATE INDEX IF NOT EXISTS idx_assignments_officer ON assignments(officer_id);
+CREATE INDEX IF NOT EXISTS idx_assignments_status ON assignments(status);
+
+-- Add officer_id and auditor_id to grievances if not exists
+ALTER TABLE grievances ADD COLUMN IF NOT EXISTS officer_id UUID REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE grievances ADD COLUMN IF NOT EXISTS auditor_id UUID REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE grievances ADD COLUMN IF NOT EXISTS at_risk_of_sla_breach BOOLEAN DEFAULT FALSE;
+
+CREATE INDEX IF NOT EXISTS idx_grievances_officer ON grievances(officer_id);
+CREATE INDEX IF NOT EXISTS idx_grievances_auditor ON grievances(auditor_id);
+CREATE INDEX IF NOT EXISTS idx_grievances_sla_risk ON grievances(at_risk_of_sla_breach);
+
+-- Apply RLS and base policies for users (allow all for now, can be refined)
+ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE assignments ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Allow all on users" ON users FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all on assignments" ON assignments FOR ALL USING (true) WITH CHECK (true);

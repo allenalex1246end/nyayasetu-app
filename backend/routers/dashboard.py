@@ -1,6 +1,8 @@
 import logging
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from utils.groq_client import generate_brief
+from utils.auth import get_current_user, require_roles
+from utils.ml_models import get_high_risk_grievances, analyze_trends
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/dashboard", tags=["Dashboard"])
@@ -182,4 +184,44 @@ async def get_trends():
         }
     except Exception as e:
         logger.error("Dashboard trends error: %s", str(e))
+        return {"success": False, "data": None, "error": str(e)}
+
+
+@router.get("/ml-insights")
+async def get_ml_insights(
+    user: dict = Depends(require_roles("admin", "auditor", "officer")),
+):
+    """Get ML predictions and insights for dashboard."""
+    from main import supabase
+    if not supabase:
+        return {"success": False, "data": None, "error": "Database not configured"}
+    
+    try:
+        # Get all grievances
+        result = supabase.table("grievances").select("*").execute()
+        grievances = result.data or []
+        
+        # Get trends
+        trends = analyze_trends(grievances)
+        
+        # Get high-risk grievances
+        high_risk = get_high_risk_grievances(grievances, threshold=0.7)[:10]
+        
+        # Compile insights
+        insights = {
+            "total_grievances": len(grievances),
+            "average_resolution_days": trends.get("average_resolution_time_days", 0),
+            "high_risk_count": len(high_risk),
+            "top_issue": trends["top_categories"][0]["category"] if trends["top_categories"] else "N/A",
+            "critical_ward": trends["critical_wards"][0]["ward"] if trends["critical_wards"] else "N/A",
+            "high_risk_grievances": high_risk,
+        }
+        
+        return {
+            "success": True,
+            "data": insights,
+            "error": None,
+        }
+    except Exception as e:
+        logger.error("ML insights error: %s", str(e))
         return {"success": False, "data": None, "error": str(e)}

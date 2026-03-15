@@ -234,73 +234,45 @@ async def resolve_railway_grievance(grievance_id: str):
 async def railway_cluster_endpoint():
     """Run cluster detection on unclustered open railway grievances."""
     from main import supabase
+    from utils.clustering import cluster_grievances
+    from utils.gemini_client import GемiniClient
+    from utils.groq_client import GroqClient
+    
     if not supabase:
         return {"success": False, "data": None, "error": "Database not configured"}
+    
     try:
         result = supabase.table("railway_grievances").select("*").eq("status", "open").is_("cluster_id", "null").execute()
         grievances = result.data or []
 
         if len(grievances) < 2:
-            return {"success": True, "data": {"clusters_created": 0, "message": "Not enough unclustered railway grievances"}, "error": None}
+            return {
+                "success": True,
+                "data": {"clusters_created": 0, "grievances_clustered": 0, "message": "Not enough unclustered railway grievances"},
+                "error": None,
+            }
 
-        embeddings = {}
-        for g in grievances:
-            gid = g.get("id")
-            text = g.get("description", "")
-            emb = await get_embedding(text)
-            if emb is not None:
-                embeddings[gid] = {"embedding": emb, "grievance": g}
+        # Initialize AI clients
+        gemini_client = GемiniClient()
+        groq_client = GroqClient()
+        
+        # Run clustering
+        clusters_created, grievances_clustered = await cluster_grievances(
+            grievances,
+            gemini_client,
+            supabase,
+            table_name="railway_grievances",
+            cluster_table="railway_clusters",
+        )
 
-        if len(embeddings) < 2:
-            return {"success": True, "data": {"clusters_created": 0, "message": "Could not get enough embeddings"}, "error": None}
-
-        ids = list(embeddings.keys())
-        visited = set()
-        clusters_created = 0
-
-        for i, id_a in enumerate(ids):
-            if id_a in visited:
-                continue
-            cluster_members = [id_a]
-            visited.add(id_a)
-
-            for j in range(i + 1, len(ids)):
-                id_b = ids[j]
-                if id_b in visited:
-                    continue
-                sim = cosine_similarity(embeddings[id_a]["embedding"], embeddings[id_b]["embedding"])
-                if sim > 0.70:  # Slightly lower threshold for railway (fewer complaints per train)
-                    g_a = embeddings[id_a]["grievance"]
-                    g_b = embeddings[id_b]["grievance"]
-                    if g_a.get("train_number") == g_b.get("train_number") or g_a.get("railway_zone") == g_b.get("railway_zone"):
-                        cluster_members.append(id_b)
-                        visited.add(id_b)
-
-            if len(cluster_members) >= 2:
-                first = embeddings[cluster_members[0]]["grievance"]
-                category = first.get("category", "other")
-                train_number = first.get("train_number", "Unknown")
-                zone = first.get("railway_zone", "Unknown")
-                summaries = [embeddings[m]["grievance"].get("ai_summary", "") or embeddings[m]["grievance"].get("description", "")[:50] for m in cluster_members]
-                summary = f"{len(cluster_members)} {category} complaints for Train {train_number} ({zone}): " + "; ".join(summaries[:3])
-
-                cluster_data = {
-                    "category": category,
-                    "train_number": train_number,
-                    "railway_zone": zone,
-                    "station": first.get("station"),
-                    "member_ids": cluster_members,
-                    "summary": summary[:500],
-                    "count": len(cluster_members),
-                }
-                cluster_result = supabase.table("railway_clusters").insert(cluster_data).execute()
-                if cluster_result.data:
-                    cluster_id = cluster_result.data[0]["id"]
-                    for mid in cluster_members:
-                        supabase.table("railway_grievances").update({"cluster_id": cluster_id}).eq("id", mid).execute()
-                    clusters_created += 1
-
-        return {"success": True, "data": {"clusters_created": clusters_created}, "error": None}
+        return {
+            "success": True,
+            "data": {
+                "clusters_created": clusters_created,
+                "grievances_clustered": grievances_clustered,
+            },
+            "error": None,
+        }
     except Exception as e:
         logger.error("Railway cluster endpoint error: %s", str(e))
         if is_table_missing(str(e)):

@@ -5,6 +5,7 @@ import LoadingSpinner from '../components/LoadingSpinner'
 import ErrorCard from '../components/ErrorCard'
 import Toast from '../components/Toast'
 import ReceiptCard from '../components/ReceiptCard'
+import AudioRecorder from '../components/AudioRecorder'
 
 const WARDS = [
   'Ward 1 (Kazhakoottam)',
@@ -178,6 +179,25 @@ export default function CitizenPortal() {
     setListening(false)
   }, [])
 
+  const handleAudioTranscribed = useCallback((result) => {
+    if (result.error) {
+      setToast({ message: `Audio error: ${result.error}`, type: 'error' })
+    } else if (result.text) {
+      setDescription(prev => prev + (prev ? ' ' : '') + result.text)
+      setToast({ message: 'Speech converted to text!', type: 'success' })
+      // Try to extract identity from audio transcript
+      extractIdentity(result.text)
+        .then((res) => {
+          const extracted = res?.data?.data || {}
+          if (extracted.name) setName((prev) => prev || extracted.name)
+          if (extracted.phone) setPhone((prev) => prev || extracted.phone)
+        })
+        .catch(() => {
+          // Silent fail
+        })
+    }
+  }, [])
+
   const handleSubmit = async (e) => {
     e.preventDefault()
     setError(null)
@@ -278,30 +298,50 @@ export default function CitizenPortal() {
         ))}
       </div>
 
-      {/* Voice button */}
-      <div className="mb-8 flex flex-col items-center">
-        <button
-          onClick={listening ? stopListening : startListening}
-          className={`relative flex h-20 w-20 items-center justify-center rounded-full text-white shadow-lg transition-all focus:outline-none focus:ring-4 focus:ring-accent/50 ${
-            listening
-              ? 'bg-critical mic-pulse scale-110'
-              : 'bg-accent hover:bg-accent/90 hover:scale-105'
-          }`}
-          aria-label={listening ? 'Stop recording' : 'Start voice input'}
-        >
-          <svg className="h-8 w-8" fill="currentColor" viewBox="0 0 24 24">
-            <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
-            <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" />
-          </svg>
-        </button>
-        <p className={`mt-3 text-sm font-body ${listening ? 'text-critical font-semibold animate-pulse' : 'text-gray-400'}`}>
-          {listening ? 'Listening... tap to stop' : 'Tap to speak your complaint'}
-        </p>
-        {!SpeechRecognition && (
-          <p className="mt-1 text-xs text-orange-500 font-body">
-            Use Chrome for voice input
+      {/* Voice input options */}
+      <div className="mb-8 grid grid-cols-1 gap-6 md:grid-cols-2">
+        {/* Browser voice recognition (Web Speech API) */}
+        <div className="flex flex-col items-center rounded-lg border-2 border-gray-200 bg-gray-50 p-4">
+          <p className="mb-4 text-sm font-medium text-gray-700 font-body">
+            Browser Voice Input
           </p>
-        )}
+          <button
+            onClick={listening ? stopListening : startListening}
+            className={`relative flex h-16 w-16 items-center justify-center rounded-full text-white shadow-lg transition-all focus:outline-none focus:ring-4 focus:ring-offset-2 ${
+              listening
+                ? 'bg-critical mic-pulse scale-110 focus:ring-critical/50'
+                : 'bg-accent hover:bg-accent/90 hover:scale-105 focus:ring-accent/50'
+            }`}
+            disabled={loading}
+            aria-label={listening ? 'Stop voice input' : 'Start voice input'}
+          >
+            <svg className="h-6 w-6" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
+              <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" />
+            </svg>
+          </button>
+          <p className={`mt-2 text-xs font-body ${listening ? 'text-critical font-semibold animate-pulse' : 'text-gray-500'}`}>
+            {listening ? 'Listening...' : 'Tap to speak'}
+          </p>
+          {!SpeechRecognition && (
+            <p className="mt-1 text-xs text-orange-500 font-body">
+              Use Chrome for voice input
+            </p>
+          )}
+        </div>
+
+        {/* Whisper API recording */}
+        <div className="flex flex-col items-center rounded-lg border-2 border-gray-200 bg-gray-50 p-4">
+          <p className="mb-4 text-sm font-medium text-gray-700 font-body">
+            AI Voice Recognition
+          </p>
+          <AudioRecorder onTranscribed={handleAudioTranscribed} disabled={loading} />
+          <p className="mt-2 text-xs text-gray-500 font-body text-center">
+            Uses AI for better accuracy
+            <br />
+            Max 5 minutes
+          </p>
+        </div>
       </div>
 
       {/* Error display */}

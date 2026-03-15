@@ -1,20 +1,27 @@
 import axios from "axios";
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || "http://localhost:8001",
+  baseURL: import.meta.env.VITE_API_URL || "http://localhost:8000",
   timeout: 20000,
 });
 
-// Request interceptor — attach Content-Type header
+// Request interceptor — attach Content-Type and Authorization headers
 api.interceptors.request.use(
   (config) => {
     config.headers["Content-Type"] = "application/json";
+    
+    // Attach JWT token if available
+    const token = localStorage.getItem("authToken");
+    if (token) {
+      config.headers["Authorization"] = `Bearer ${token}`;
+    }
+    
     return config;
   },
   (error) => Promise.reject(error)
 );
 
-// Response interceptor — surface server-side errors
+// Response interceptor — surface server-side errors and handle auth failures
 api.interceptors.response.use(
   (response) => {
     if (response.data && response.data.success === false) {
@@ -24,7 +31,15 @@ api.interceptors.response.use(
     }
     return response;
   },
-  (error) => Promise.reject(error)
+  (error) => {
+    // Handle 401 Unauthorized — redirect to login
+    if (error.response && error.response.status === 401) {
+      localStorage.removeItem("authToken");
+      localStorage.removeItem("user");
+      window.location.href = "/login";
+    }
+    return Promise.reject(error);
+  }
 );
 
 /* ────────── Grievance endpoints ────────── */
@@ -73,6 +88,23 @@ export const extractIdentity = (transcript) => api.post("/api/extract-identity",
 /* ────────── Community endpoint ────────── */
 
 export const supportGrievance = (id) => api.post(`/api/grievances/${id}/support`);
+
+/* ────────── Officer endpoints ────────── */
+
+export const getMyAssignments = (status = null) => {
+  const params = status ? { status_filter: status } : {};
+  return api.get("/api/officer/assignments", { params });
+};
+
+export const getOfficerProfile = () => api.get("/api/officer/me");
+
+export const getOfficerStats = () => api.get("/api/officer/stats");
+
+export const updateGrievanceStatus = (id, data) =>
+  api.put(`/api/officer/grievances/${id}/status`, data);
+
+export const assignGrievance = (id, data) =>
+  api.post(`/api/officer/assignments/${id}/assign`, data);
 
 /* ────────── Railway (RailMadad 2.0) endpoints ────────── */
 
