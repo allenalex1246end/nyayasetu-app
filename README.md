@@ -2,6 +2,8 @@
 
 A full-stack AI-powered platform for transparent public grievance management in India, with automatic complaint clustering, SLA monitoring, fake-closure detection, and undertrial rights (Section 436A) tracking.
 
+**🤖 GENAI + AGENTIC AI TRACK:** Three autonomous agents with ReAct reasoning, multi-agent learning, and transparent decision-making. See [JUDGES_EVALUATION_GUIDE.md](JUDGES_EVALUATION_GUIDE.md) and `/showcase` for live demo.
+
 ## Tech Stack
 
 | Layer | Technology |
@@ -9,6 +11,7 @@ A full-stack AI-powered platform for transparent public grievance management in 
 | Frontend | React 18 + Vite + Tailwind CSS |
 | Backend | Python FastAPI + Uvicorn |
 | Database | Supabase (PostgreSQL) |
+| **Agentic AI** | **ReAct agents + Groq LLM + Multi-agent memory** |
 | AI (LLM) | Groq API (Llama 3.1 8B) |
 | AI (Embeddings) | Google Gemini (text-embedding-004) |
 | SMS | Twilio |
@@ -73,6 +76,15 @@ Open http://localhost:5173
 | `/officer` | Officer Dashboard | Stats, map, complaints, clusters, briefs |
 | `/justice` | Justice-Link | Undertrial prisoner rights (436A) |
 | `/track/:id` | Track Complaint | Citizen tracks complaint status |
+| **`/showcase`** | **Judges Demo** | **Live agentic AI agents with reasoning traces** |
+
+### 🤖 Judges Showcase (`/showcase`)
+See three autonomous agents in action:
+- **Grievance Processor Agent** - Multi-turn reasoning with ReAct pattern
+- **Routing Agent** - Intelligent officer assignment with multi-factor optimization
+- **Policy Agent** - Governance intelligence generation from patterns
+
+Access: http://localhost:5173/showcase
 
 ## Key Features
 - **Voice Input**: Web Speech API for complaint dictation

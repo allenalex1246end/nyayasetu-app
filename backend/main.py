@@ -119,6 +119,7 @@ from routers.audit import router as audit_router
 from routers.predictions import router as predictions_router
 from routers.auth import router as auth_router
 from routers.officer import router as officer_router
+from routers.agents import router as agents_router
 
 app.include_router(auth_router)
 app.include_router(officer_router)
@@ -129,6 +130,7 @@ app.include_router(legal_router)
 app.include_router(railway_router)
 app.include_router(audit_router)
 app.include_router(predictions_router)
+app.include_router(agents_router)
 
 
 @app.get("/")

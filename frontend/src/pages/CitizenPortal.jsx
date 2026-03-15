@@ -185,15 +185,38 @@ export default function CitizenPortal() {
     } else if (result.text) {
       setDescription(prev => prev + (prev ? ' ' : '') + result.text)
       setToast({ message: 'Speech converted to text!', type: 'success' })
+      
       // Try to extract identity from audio transcript
       extractIdentity(result.text)
         .then((res) => {
           const extracted = res?.data?.data || {}
-          if (extracted.name) setName((prev) => prev || extracted.name)
-          if (extracted.phone) setPhone((prev) => prev || extracted.phone)
+          const method = res?.data?.method || 'unknown'
+          
+          if (extracted.name) {
+            setName(prev => prev || extracted.name)
+            setToast({ 
+              message: `Name auto-filled: ${extracted.name}`, 
+              type: 'success' 
+            })
+          }
+          
+          if (extracted.phone) {
+            setPhone(prev => prev || extracted.phone)
+            if (!extracted.name) {
+              setToast({ 
+                message: `Phone auto-filled: ${extracted.phone}`, 
+                type: 'success' 
+              })
+            }
+          }
+          
+          if (!extracted.name && !extracted.phone) {
+            console.log(`No name/phone found (method: ${method})`)
+          }
         })
-        .catch(() => {
-          // Silent fail
+        .catch((err) => {
+          console.error('Identity extraction failed:', err)
+          // Silent fail - user can fill manually
         })
     }
   }, [])

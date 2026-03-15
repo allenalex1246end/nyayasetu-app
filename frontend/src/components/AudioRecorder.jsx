@@ -5,7 +5,7 @@ export default function AudioRecorder({ onTranscribed, disabled = false }) {
   const [isTranscribing, setIsTranscribing] = useState(false)
   const [recordingTime, setRecordingTime] = useState(0)
   const [language, setLanguage] = useState('en') // 'en' for English, 'ml' for Malayalam
-  const [useWebSpeech, setUseWebSpeech] = useState(false) // Toggle between Whisper and Web Speech
+  const [useWebSpeech, setUseWebSpeech] = useState(true) // ✅ Default to Web Speech API (no API key needed)
   const mediaRecorderRef = useRef(null)
   const audioChunksRef = useRef([])
   const timerRef = useRef(null)
@@ -17,9 +17,16 @@ export default function AudioRecorder({ onTranscribed, disabled = false }) {
     if (!SpeechRecognition) return null
     
     const recognition = new SpeechRecognition()
-    recognition.continuous = true
-    recognition.interimResults = true
+    recognition.continuous = true         // Keep listening for longer utterances
+    recognition.interimResults = true     // Show partial results while speaking
+    recognition.maxAlternatives = 1       // Get the best match
     recognition.language = language === 'ml' ? 'ml-IN' : 'en-US'
+    
+    // Improve audio processing settings
+    if (recognition.timeoutInterval) {
+      recognition.timeoutInterval = 60000 // 60 second timeout
+    }
+    
     return recognition
   }
 
@@ -33,16 +40,63 @@ export default function AudioRecorder({ onTranscribed, disabled = false }) {
 
       recognitionRef.current = recognition
       let transcript = ''
+      let hasInterimResults = false
 
-      recognition.onresult = (event) => {
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          transcript += event.results[i][0].transcript
+      recognition.onstart = () => {
+        console.log('[Web Speech] Recognition started - listening for speech...')
+        console.log('[Web Speech] Language:', language === 'ml' ? 'Malayalam (ml-IN)' : 'English (en-US)')
+        
+        // Try to detect audio input levels
+        try {
+          const audioContext = new (window.AudioContext || window.webkitAudioContext)()
+          navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+            const analyser = audioContext.createAnalyser()
+            const microphone = audioContext.createMediaStreamSource(stream)
+            microphone.connect(analyser)
+            
+            const dataArray = new Uint8Array(analyser.frequencyBinCount)
+            const checkAudio = () => {
+              analyser.getByteFrequencyData(dataArray)
+              const average = dataArray.reduce((a, b) => a + b) / dataArray.length
+              if (average > 5) {
+                console.log('[Web Speech] Audio detected - levels OK')
+              }
+            }
+            
+            const audioCheckInterval = setInterval(checkAudio, 100)
+            setTimeout(() => clearInterval(audioCheckInterval), 5000)
+          }).catch(err => {
+            console.warn('[Web Speech] Audio level detection failed:', err.message)
+          })
+        } catch (err) {
+          console.warn('[Web Speech] AudioContext not available')
         }
       }
 
+      recognition.onresult = (event) => {
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const result = event.results[i]
+          const confidence = result[0].confidence
+          
+          transcript += result[0].transcript + ' '
+          
+          if (result.isFinal) {
+            hasInterimResults = true
+            console.log('[Web Speech] Final result - confidence:', (confidence * 100).toFixed(1) + '%')
+          } else {
+            console.log('[Web Speech] Interim - confidence:', (confidence * 100).toFixed(1) + '%')
+          }
+        }
+        console.log('[Web Speech] Interim transcript:', transcript.trim())
+      }
+
       recognition.onend = async () => {
-        if (transcript.trim()) {
-          let finalText = transcript.trim()
+        const finalTranscript = transcript.trim()
+        console.log('[Web Speech] Final transcript:', finalTranscript)
+        console.log('[Web Speech] Has results:', hasInterimResults)
+        
+        if (finalTranscript.length > 0) {
+          let finalText = finalTranscript
           
           // If Malayalam, translate to English
           if (language === 'ml') {
@@ -54,25 +108,66 @@ export default function AudioRecorder({ onTranscribed, disabled = false }) {
                   'Content-Type': 'application/json',
                   'Authorization': `Bearer ${token}`
                 },
-                body: JSON.stringify({ text: transcript })
+                body: JSON.stringify({ text: finalTranscript })
               })
               const result = await response.json()
               if (result.success && result.data?.english) {
                 finalText = result.data.english
               }
             } catch (err) {
-              console.error('Translation error:', err)
+              console.error('[Web Speech] Translation error:', err)
             }
           }
           
+          console.log('[Web Speech] Calling onTranscribed with:', finalText)
           onTranscribed({ text: finalText })
+        } else {
+          console.log('[Web Speech] Empty transcript - no results')
+          onTranscribed({ error: 'No speech detected. Please speak clearly and try again.' })
         }
+        
         setIsRecording(false)
         setIsTranscribing(false)
       }
 
       recognition.onerror = (event) => {
-        onTranscribed({ error: `Speech recognition error: ${event.error}` })
+        console.error('[Web Speech] Recognition error:', event.error)
+        console.error('[Web Speech] Error details:', {
+          error: event.error,
+          timeRecording: recordingTime,
+          hasTranscript: transcript.length > 0
+        })
+        
+        // Better error messages for common issues with diagnostics
+        let errorMessage = ''
+        switch(event.error) {
+          case 'no-speech':
+            errorMessage = 'No speech detected. Ensure your microphone is working and speak clearly. Try speaking again.'
+            break
+          case 'audio-capture':
+            errorMessage = 'Microphone issue. Check system audio settings and browser permissions. Refresh browser and try again.'
+            break
+          case 'network':
+            errorMessage = 'Network error. Check your internet connection and try again.'
+            break
+          case 'not-allowed':
+            errorMessage = 'Microphone access denied. Allow microphone in browser settings (top left of address bar).'
+            break
+          case 'service-not-allowed':
+            errorMessage = 'Web Speech service disabled. Check browser settings or try a different browser.'
+            break
+          case 'bad-grammar':
+            errorMessage = 'Recognition grammar error. Please try again.'
+            break
+          case 'aborted':
+            errorMessage = 'Recording stopped. Please try again.'
+            break
+          default:
+            errorMessage = `Speech error: ${event.error}. Try holding mic closer and speak clearly.`
+        }
+        
+        console.log('[Web Speech] Error message sent:', errorMessage)
+        onTranscribed({ error: errorMessage })
         setIsRecording(false)
         setIsTranscribing(false)
       }
@@ -92,6 +187,7 @@ export default function AudioRecorder({ onTranscribed, disabled = false }) {
         })
       }, 1000)
     } catch (err) {
+      console.error('[Web Speech] Init error:', err)
       onTranscribed({ error: `Microphone error: ${err.message}` })
     }
   }
